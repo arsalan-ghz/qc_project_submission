@@ -1,0 +1,2 @@
+model,n_train,n_test,MAE,RMSE,R2,seed,features,n_qubits,reps,maxiter
+"Ridge + VQC(Linear, statevector)",53,14,0.20849202264903596,0.26839781091979603,0.8047613506801019,42,tau_cent_median|sigma_line_median|fwhm_median,3,1,200

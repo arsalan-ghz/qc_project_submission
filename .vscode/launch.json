@@ -1,0 +1,34 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug run_qcardest_style_training (example)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/run_qcardest_style_training.py",
+      "console": "integratedTerminal",
+      "args": [
+        "--epochs", "1",
+        "--shots", "50",
+        "--reps", "1",
+        "--archs", "linear",
+        "--out-metrics", "results/_debug_metrics.csv",
+        "--out-preds", "results/_debug_preds.csv"
+      ],
+      "cwd": "${workspaceFolder}",
+      "env": { "PYTHONUNBUFFERED": "1" },
+      "justMyCode": false
+    },
+    {
+      "name": "Debug run_qcardest_style_training (module)",
+      "type": "python",
+      "request": "launch",
+      "module": "run_qcardest_style_training",
+      "console": "integratedTerminal",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": { "PYTHONUNBUFFERED": "1" },
+      "justMyCode": false
+    }
+  ]
+}

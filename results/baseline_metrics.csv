@@ -1,0 +1,2 @@
+model,n_train,n_test,MAE,RMSE,R2,random_state,features
+Ridge(alpha=1.0),53,14,0.31101404002745286,0.38114817361972797,0.6062726879811802,42,tau_cent_median|sigma_line_median|fwhm_median

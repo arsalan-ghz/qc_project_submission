@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run training (conda)",
+      "type": "shell",
+      "command": "/home/arsalan_gh/miniconda3/bin/conda run -n qc_project python run_qcardest_style_training.py --epochs 1 --shots 50 --reps 1 --archs linear --out-metrics results/_debug_metrics.csv --out-preds results/_debug_preds.csv",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      },
+      "problemMatcher": []
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+# add agnmass_dump/reverb_tables/ to .gitignore
+agnmass_dump/reverb_tables/*.txt
+agnmass_dump/reverb_tables/*.csv
+
+# project_tutorials/
+lecture_material/
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Local clone of upstream QCardEst repo (reference only)
+qcardest-git/
+
+# add .venv
+.venv/
