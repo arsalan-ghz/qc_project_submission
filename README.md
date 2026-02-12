@@ -116,6 +116,22 @@ Example:
 python run_qcardest_style_training.py --epochs 25 --shots 200 --reps 2 --seed 42
 ```
 
+### K-fold cross-validation (CV)
+Use `--kfolds` to run CV instead of a single split. When multiple folds are run, an aggregated metrics CSV is also written (mean/std over folds).
+
+Example (5-fold CV):
+
+```bash
+python run_qcardest_style_training.py \
+   --kfolds 5 \
+   --kfold-seed 42 \
+   --epochs 25 \
+   --shots 200 \
+   --reps 2 \
+   --out-metrics results/qcardest_style_metrics_cv.csv \
+   --out-preds results/qcardest_style_predictions_cv.csv
+```
+
 ### Readout mode notes
 - Default readout is the legacy *sum* reduction (reshape to `n_outputs` buckets and sum).
 - Switch to explicit bitstring selection with `--readout bitstring` to select basis states (e.g. `000…0` / `111…1`) before the interpretation layer.
