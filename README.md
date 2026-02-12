@@ -122,3 +122,110 @@ python run_qcardest_style_training.py --epochs 25 --shots 200 --reps 2 --seed 42
 - When using `--readout bitstring`, override selected states via `--bitstrings`, e.g. `--bitstrings 000 011 101` when `--n-outputs 3`. The list length must equal `n_outputs` and each entry must match the circuit width (number of qubits).
 
 ## Notes
+
+## Quantum logic breakdown (implementation map)
+
+This section provides a structured, step-by-step breakdown of the quantum logic and points to the exact scripts and functions that implement each stage. Use it as a reference to understand how the pipeline is realized in code.
+
+### Overview (helicopter view)
+- `run_qcardest_style_training.py`: Orchestrates the end-to-end flow (data split, baseline Ridge, residual target, QNN training, and baseline+correction composition).
+- `src/qc_quantum_corr.py`: Feature-to-angle utilities (z-score clipping and scaling into rotation angles).
+- `src/qml_model.py`: Builds the variational circuit, sampler-backed QNN, and readout stack (reshape-sum or bitstring selection + optional normalization).
+- `src/qml_layers.py`: Reduction and normalization layers that implement QCardEst-style post-processing.
+- `src/qml_interpretation.py`: Interpretation heads (`linear`, `rational`, `rationalLog`) that map reduced outputs to a scalar correction.
+
+The sections below provide a step-by-step mapping from the conceptual pipeline to the exact functions and code paths.
+
+### 1. Standardize features → build z
+- **File:** `run_qcardest_style_training.py`, function `_run_one_experiment`
+- **Code:**
+   - `scaler_q = Pipeline([... SimpleImputer, StandardScaler ...])`
+   - `Z_train = scaler_q.fit_transform(X_train)` / `Z_test = scaler_q.transform(X_test)`
+- **Role:** computes per-feature z-scores $z_j = (x_j-\mu_j)/\sigma_j$ on the quantum branch.
+
+### 2. Clip and scale → angles φ
+- **Files:**
+   - `src/qc_quantum_corr.py` defines `AngleMap(clip, scale)` and `angles_from_z(z, angle_map)`.
+   - `run_qcardest_style_training.py` calls `angles_from_z` for every z-vector (`Xang_train = ...`).
+- **Role:** clamps each z component to $[-\text{clip}, \text{clip}]$ and multiplies by `scale` ($s = \pi/2$ by default) to produce the rotation angles $\phi_j$.
+
+### 3. Angle encoding gates RY(φ)
+- **File:** `src/qml_model.py`, helper `_build_parametrized_vqc`.
+- **Code:** `qc.ry(x_params[i], i)` for every qubit `i`.
+- **Role:** applies the data-dependent RY(φ) rotations that inject the preprocessed features into the circuit.
+
+### 4. Trainable variational block (RY/RZ per qubit, repeated reps times)
+- **File:** `src/qml_model.py`, `_build_parametrized_vqc`.
+- **Code:** inside the `for _ in range(reps)` loop the circuit applies `qc.ry(theta_params[idx], i)` and `qc.rz(...)` on every qubit.
+- **Control:** `_run_one_experiment` builds `QNNSettings(reps=args.reps, ...)`, so the CLI `--reps` flag selects how many times this block repeats.
+
+### 5. Entanglement (CX chain)
+- **File:** `src/qml_model.py`, `_build_parametrized_vqc`.
+- **Code:** `for i in range(n_qubits - 1): qc.cx(i, i + 1)` inside each repetition.
+- **Role:** implements the CX chain (0→1, 1→2, …) to introduce feature interactions.
+
+### 6. Measurement + sampler back-end
+- **File:** `src/qml_model.py`.
+   - `_build_parametrized_vqc` ends with `qc.measure_all()` so that the sampler sees measured bitstrings.
+   - `build_qnn_base_model` wraps the circuit in a `SamplerQNN` (`TorchConnector`) with an Aer sampler configured via `QNNSettings(shots, seed, readout, ...)`.
+- **Role:** this is the “measure all qubits → probability distribution → Torch layer” portion of the QNN pipeline.
+
+### QCardEst-style reduction + interpretation
+
+#### 7. Raw probability vector → reduced outputs
+- **File:** `src/qml_model.py`, function `build_qnn_base_model`
+- **Code path:**
+   - `SamplerQNN(..., interpret=lambda i: i, output_shape=2**n_qubits)` produces the full probability vector.
+   - readout selection:
+      - `ReshapeSumLayer(n_outputs)` when `readout == "sum"`
+      - `BitstringSelectLayer(bitstrings)` when `readout == "bitstring"`
+- **Role:** implements QCardEst’s post-measurement reduction of the $2^n$-length vector into `n_outputs` components.
+
+#### 8. Reshape+sum reduction (legacy/QCardEst)
+- **File:** `src/qml_layers.py`, class `ReshapeSumLayer`
+- **Role:** reshapes the last dimension into `(n_outputs, -1)` and sums each bin, matching the “reshape + sum” description.
+
+#### 9. Explicit bitstring reduction (optional)
+- **File:** `src/qml_layers.py`, class `BitstringSelectLayer`
+- **Role:** selects specific computational-basis indices by bitstring (e.g., `000...0`, `111...1`) instead of bin-summing.
+- **Configuration:** set `--readout bitstring` and optionally provide `--bitstrings` in `run_qcardest_style_training.py`.
+
+#### 10. Max-normalization (QCardEst-style)
+- **File:** `src/qml_layers.py`, class `NormLayer`
+- **Role:** divides each output vector by its per-sample maximum (`x / max(x)`), matching the normalization step (not sum-to-1 normalization).
+- **Configuration:** controlled by `QNNSettings(norm=...)`, set via `--norm/--no-norm` in `run_qcardest_style_training.py`.
+
+#### 11. Interpretation heads (map reduced vector → scalar Δ̂)
+- **File:** `src/qml_interpretation.py`
+- **Classes/behavior:**
+   - `LinearScale`: learned scalar on the first component (no bias)
+   - `Rational`: $(x_0+\epsilon)/(x_1+\epsilon)$
+   - `RationalLog`: $\log((x_0+\epsilon)/(x_1+\epsilon))$
+- **Factory:** `from_string(name, base_model)` selects the head based on `--archs`.
+- **Invocation:** `run_qcardest_style_training.py` wraps the base QNN with `from_string(arch, base_qnn)` for each architecture.
+
+### Training, optimization, and correction composition
+
+#### 12. QNN parameter learning (optimization loop)
+- **File:** `run_qcardest_style_training.py`, function `_train_one`
+- **Code path:**
+   - Builds a Torch `DataLoader` for mini-batches.
+   - Uses `torch.optim.Adam` and `torch.nn.MSELoss()`.
+   - Calls `loss.backward()` and `opt.step()` to update circuit parameters exposed by `TorchConnector`.
+- **Role:** performs gradient-based optimization over the circuit weights (and the linear head’s scalar when `arch=linear`).
+
+#### 13. Train/evaluate orchestration per architecture
+- **File:** `run_qcardest_style_training.py`, function `_run_one_experiment`
+- **Code path:**
+   - `base_qnn = build_qnn_base_model(...)` builds the QNN + reduction stack.
+   - `model = from_string(arch, base_qnn)` attaches the chosen interpretation head.
+   - `_train_one(...)` trains the model for the configured epochs.
+- **Role:** loops over architectures (`--archs`) so each head is trained and evaluated separately.
+
+#### 14. Baseline + correction composition
+- **File:** `run_qcardest_style_training.py`, function `_run_one_experiment`
+- **Code path:**
+   - Baseline: `y_base_test = base_model.predict(X_test)`
+   - Correction: `delta_hat_test = result["pred_test"]`
+   - Final prediction: `y_pred_quant = y_base_test + delta_hat_test`
+- **Role:** combines the learned residual with the classical baseline to form the final corrected prediction.
